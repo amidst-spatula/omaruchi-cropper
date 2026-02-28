@@ -9,11 +9,6 @@ window.addEventListener('DOMContentLoaded', loadSettings);
 document.getElementById('imageInput').addEventListener('change', handleImageUpload);
 document.getElementById('toggleAdjustBtn').addEventListener('click', toggleSettings);
 document.getElementById('resetAdjustBtn').addEventListener('click', resetAdjustment);
-document.getElementById('mobileMode').addEventListener('change', () => {
-    saveSettings();
-    updateAdjustmentPreview();
-    if (loadedImages.length > 0) combineImages(loadedImages);
-});
 
 // ドラッグ操作の設定
 const wrapper = document.getElementById('adjustmentWrapper');
@@ -27,26 +22,15 @@ window.addEventListener('touchend', endDrag);
 /** localStorage から設定を読み込む */
 function loadSettings() {
     const savedYOffset = localStorage.getItem('nikke_cropper_yOffset');
-    const savedMobileMode = localStorage.getItem('nikke_cropper_mobileMode');
-    
     if (savedYOffset !== null) {
         document.getElementById('yOffsetRange').value = savedYOffset;
-    }
-    if (savedMobileMode !== null) {
-        document.getElementById('mobileMode').checked = savedMobileMode === 'true';
-    } else {
-        // 初回訪問時のみ自動デバイス判定
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        document.getElementById('mobileMode').checked = isMobile;
     }
 }
 
 /** localStorage に設定を保存する */
 function saveSettings() {
     const yOffset = document.getElementById('yOffsetRange').value;
-    const mobileMode = document.getElementById('mobileMode').checked;
     localStorage.setItem('nikke_cropper_yOffset', yOffset);
-    localStorage.setItem('nikke_cropper_mobileMode', mobileMode);
 }
 
 function resetAdjustment() {
@@ -87,7 +71,7 @@ function drag(e) {
     const newOffset = initialYOffset + (deltaY * scale);
     document.getElementById('yOffsetRange').value = Math.round(newOffset);
     
-    saveSettings(); // ドラッグごとに保存
+    saveSettings();
     updateAdjustmentPreview();
     combineImages(loadedImages);
 
@@ -129,6 +113,19 @@ async function handleImageUpload(event) {
     }
 }
 
+/** ブラウザからセーフエリアのインセット値を取得する */
+function getSafeAreaTop() {
+    const div = document.createElement('div');
+    div.style.paddingTop = 'env(safe-area-inset-top)';
+    div.style.position = 'fixed';
+    div.style.top = '0';
+    div.style.visibility = 'hidden';
+    document.body.appendChild(div);
+    const insetTop = parseInt(window.getComputedStyle(div).paddingTop, 10) || 0;
+    document.body.removeChild(div);
+    return insetTop;
+}
+
 function updateAdjustmentPreview() {
     if (loadedImages.length === 0) return;
 
@@ -145,13 +142,9 @@ function updateAdjustmentPreview() {
 
     const { W, H, offsetX } = calculateSafeSize(img);
     const manualYOffset = parseInt(document.getElementById('yOffsetRange').value, 10);
-    const mobileMode = document.getElementById('mobileMode').checked;
     
-    let deadZoneOffset = 0;
-    if (mobileMode) {
-        const safeAreaTop = getSafeAreaTop();
-        deadZoneOffset = safeAreaTop || (H * 0.045);
-    }
+    // デッドゾーン補正を自動取得（モバイルなら値が入り、PCなら0になる）
+    const deadZoneOffset = getSafeAreaTop() || (H * 0.045 * (isMobileDevice() ? 1 : 0));
 
     const charY_Base = (H * 0.1875) + deadZoneOffset + manualYOffset;
     const charHeight = H * 0.296875;
@@ -190,6 +183,10 @@ function updateAdjustmentPreview() {
     }
 }
 
+function isMobileDevice() {
+    return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
+
 function calculateSafeSize(img) {
     const imageW = img.width;
     const imageH = img.height;
@@ -211,18 +208,6 @@ function calculateSafeSize(img) {
     return { W, H, offsetX, offsetY };
 }
 
-function getSafeAreaTop() {
-    const div = document.createElement('div');
-    div.style.paddingTop = 'env(safe-area-inset-top)';
-    div.style.position = 'fixed';
-    div.style.top = '0';
-    div.style.visibility = 'hidden';
-    document.body.appendChild(div);
-    const insetTop = parseInt(window.getComputedStyle(div).paddingTop, 10) || 0;
-    document.body.removeChild(div);
-    return insetTop;
-}
-
 function combineImages(images) {
     const previewContainer = document.getElementById('previewContainer');
     previewContainer.innerHTML = '';
@@ -231,13 +216,8 @@ function combineImages(images) {
 
     const { W, H, offsetX } = calculateSafeSize(images[0]);
     const manualYOffset = parseInt(document.getElementById('yOffsetRange').value, 10);
-    const mobileMode = document.getElementById('mobileMode').checked;
     
-    let deadZoneOffset = 0;
-    if (mobileMode) {
-        const safeAreaTop = getSafeAreaTop();
-        deadZoneOffset = safeAreaTop || (H * 0.045);
-    }
+    const deadZoneOffset = getSafeAreaTop() || (H * 0.045 * (isMobileDevice() ? 1 : 0));
 
     const charY_Base = (H * 0.1875) + deadZoneOffset + manualYOffset;
     const charHeight = H * 0.296875;
