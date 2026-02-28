@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NIKKE キャラクター切り抜き器</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>NIKKE キャラクター切り抜き器</h1>
+            <p>協同作戦のスクリーンショットからキャラを抽出します</p>
+        </header>
+
+        <main>
+            <section class="upload-section">
+                <label for="imageInput" class="custom-file-upload">
+                    画像を選択
+                </label>
+                <input type="file" id="imageInput" accept="image/*">
+            </section>
+
+            <section id="previewContainer" class="preview-container">
+                <!-- 切り抜かれた画像がここに表示されます -->
+            </section>
+        </main>
+
+        <footer>
+            <p>画像をタップして保存できます</p>
+        </footer>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
