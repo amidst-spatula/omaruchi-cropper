@@ -40,7 +40,7 @@ function processImage(img) {
         offsetY = (imageH - H) / 2;
     }
 
-    const charY = offsetY + H * 0.1875;
+    const charY = H * 0.1875;
     const charHeight = H * 0.296875;
 
     // --- 精密な比率計算 (W=1080, D=209 から算出) ---
