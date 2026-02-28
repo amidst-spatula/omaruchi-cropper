@@ -36,6 +36,80 @@ header p {
     margin-bottom: 2rem;
 }
 
+.hidden {
+    display: none !important;
+}
+
+.secondary-btn {
+    background-color: var(--card-bg);
+    color: var(--text-color);
+    padding: 10px 20px;
+    border: 1px solid #555;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    margin-left: 10px;
+}
+
+.settings-panel {
+    background-color: var(--card-bg);
+    padding: 15px;
+    border-radius: var(--border-radius);
+    margin-bottom: 20px;
+    text-align: left;
+    font-size: 0.9rem;
+}
+
+.adjustment-preview-container {
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.adjustment-wrapper {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    background: #000;
+    line-height: 0;
+    cursor: grab;
+    user-select: none;
+    touch-action: none; /* スマホでのドラッグを妨げないように */
+}
+
+.adjustment-wrapper:active {
+    cursor: grabbing;
+}
+
+#adjustmentCanvas {
+    max-width: 100%;
+    height: auto;
+    pointer-events: none; /* イベントはwrapperで拾う */
+}
+
+.crop-overlay {
+    position: absolute;
+    pointer-events: none;
+    border: 2px solid #ff4444;
+    background-color: rgba(255, 68, 68, 0.2);
+    box-sizing: border-box;
+}
+
+.crop-frame {
+    position: absolute;
+    border: 2px solid #00ff00;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+.setting-item {
+    margin-bottom: 10px;
+}
+
+.setting-item label {
+    display: block;
+    margin-bottom: 5px;
+}
+
 .upload-section {
     margin-bottom: 2rem;
 }
@@ -80,7 +154,7 @@ header p {
 
 .preview-item img {
     display: block;
-    max-width: 150px; /* 必要に応じて調整 */
+    max-width: 150px;
     height: auto;
 }
 

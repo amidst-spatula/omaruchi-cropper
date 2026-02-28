@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>NIKKE キャラクター切り抜き器</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -16,9 +16,31 @@
         <main>
             <section class="upload-section">
                 <label for="imageInput" class="custom-file-upload">
-                    画像を選択
+                    画像を選択（複数可）
                 </label>
-                <input type="file" id="imageInput" accept="image/*">
+                <input type="file" id="imageInput" accept="image/*" multiple>
+                <button id="toggleAdjustBtn" class="secondary-btn" style="display: none;">位置調整を表示</button>
+            </section>
+
+            <section id="settingsPanel" class="settings-panel hidden">
+                <div class="adjustment-preview-container">
+                    <p>画像を上下にドラッグして枠を合わせてください</p>
+                    <div id="adjustmentWrapper" class="adjustment-wrapper">
+                        <canvas id="adjustmentCanvas"></canvas>
+                        <div id="cropOverlay" class="crop-overlay"></div>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <label>
+                        <input type="checkbox" id="mobileMode"> モバイルデッドゾーン補正
+                    </label>
+                </div>
+                <div class="setting-item" style="display: flex; gap: 10px; align-items: center;">
+                    <button id="resetAdjustBtn" class="secondary-btn" style="margin-left: 0;">デフォルトにリセット</button>
+                    <span style="font-size: 0.8rem; opacity: 0.7;">※設定は自動的に保存されます</span>
+                </div>
+                <!-- 内部的な値保持用（非表示） -->
+                <input type="hidden" id="yOffsetRange" value="0">
             </section>
 
             <section id="previewContainer" class="preview-container">
