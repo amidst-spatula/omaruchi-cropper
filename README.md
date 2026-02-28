@@ -14,3 +14,7 @@
 - **設定保存**: 調整したY軸オフセットはブラウザ（localStorage）に自動保存。
 - **プライバシー**: サーバーへの画像送信なし（すべてブラウザのCanvas APIで完結）。
 - **外部ライブラリ不要**: Pure HTML / CSS / JS。
+
+## 連絡先
+   バグ報告や要望などは、GitHubのIssuesまたは下記メールアドレスまでお願いします。
+   - Email: amidst.spatula@gmail.com
