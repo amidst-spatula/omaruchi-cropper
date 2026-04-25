@@ -19,7 +19,6 @@ window.addEventListener('touchmove', drag, { passive: false });
 window.addEventListener('mouseup', endDrag);
 window.addEventListener('touchend', endDrag);
 
-/** localStorage から設定を読み込む */
 function loadSettings() {
     const savedYOffset = localStorage.getItem('nikke_cropper_yOffset');
     if (savedYOffset !== null) {
@@ -27,7 +26,6 @@ function loadSettings() {
     }
 }
 
-/** localStorage に設定を保存する */
 function saveSettings() {
     const yOffset = document.getElementById('yOffsetRange').value;
     localStorage.setItem('nikke_cropper_yOffset', yOffset);
@@ -113,7 +111,6 @@ async function handleImageUpload(event) {
     }
 }
 
-/** ブラウザからセーフエリアのインセット値を取得する */
 function getSafeAreaTop() {
     const div = document.createElement('div');
     div.style.paddingTop = 'env(safe-area-inset-top)';
@@ -124,6 +121,24 @@ function getSafeAreaTop() {
     const insetTop = parseInt(window.getComputedStyle(div).paddingTop, 10) || 0;
     document.body.removeChild(div);
     return insetTop;
+}
+
+/** 
+ * 画像とデバイスの解像度が一致する場合のみ、自動デッドゾーンオフセットを返す
+ */
+function getAutoDeadZoneOffset(img) {
+    const dpr = window.devicePixelRatio || 1;
+    const physicalScreenWidth = Math.round(window.screen.width * dpr);
+    const physicalScreenHeight = Math.round(window.screen.height * dpr);
+
+    // 解像度が一致（縦横不問）するかチェック
+    const isSameDevice = (img.width === physicalScreenWidth && img.height === physicalScreenHeight) ||
+                         (img.width === physicalScreenHeight && img.height === physicalScreenWidth);
+
+    if (isSameDevice) {
+        return getSafeAreaTop() * dpr;
+    }
+    return 0;
 }
 
 function updateAdjustmentPreview() {
@@ -143,8 +158,8 @@ function updateAdjustmentPreview() {
     const { W, H, offsetX } = calculateSafeSize(img);
     const manualYOffset = parseInt(document.getElementById('yOffsetRange').value, 10);
     
-    // デッドゾーン補正を自動取得（モバイルなら値が入り、PCなら0になる）
-    const deadZoneOffset = getSafeAreaTop() || (H * 0.045 * (isMobileDevice() ? 1 : 0));
+    // 自動補正（同じデバイスの場合のみ）
+    const deadZoneOffset = getAutoDeadZoneOffset(img);
 
     const charY_Base = (H * 0.1875) + deadZoneOffset + manualYOffset;
     const charHeight = H * 0.296875;
@@ -183,10 +198,6 @@ function updateAdjustmentPreview() {
     }
 }
 
-function isMobileDevice() {
-    return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-}
-
 function calculateSafeSize(img) {
     const imageW = img.width;
     const imageH = img.height;
@@ -217,7 +228,7 @@ function combineImages(images) {
     const { W, H, offsetX } = calculateSafeSize(images[0]);
     const manualYOffset = parseInt(document.getElementById('yOffsetRange').value, 10);
     
-    const deadZoneOffset = getSafeAreaTop() || (H * 0.045 * (isMobileDevice() ? 1 : 0));
+    const deadZoneOffset = getAutoDeadZoneOffset(images[0]);
 
     const charY_Base = (H * 0.1875) + deadZoneOffset + manualYOffset;
     const charHeight = H * 0.296875;
