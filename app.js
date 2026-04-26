@@ -325,14 +325,49 @@ function findBestMapping(refs, currents) {
 function calculateImageDiff(data1, data2) {
     const d1 = data1.data;
     const d2 = data2.data;
-    let diff = 0;
-    for (let i = 0; i < d1.length; i += 16) {
-        const r = Math.abs(d1[i] - d2[i]);
-        const g = Math.abs(d1[i+1] - d2[i+1]);
-        const b = Math.abs(d1[i+2] - d2[i+2]);
-        diff += (r + g + b);
+    const w = data1.width;
+    const h = data1.height;
+    const len = w * h;
+    const SHIFT = 4;
+
+    function gray(data) {
+        const g = new Float64Array(len);
+        for (let i = 0; i < len; i++) {
+            g[i] = (data[i*4] + data[i*4+1] + data[i*4+2]) / 3;
+        }
+        return g;
     }
-    return diff;
+
+    const g1 = gray(d1);
+    const g2 = gray(d2);
+
+    const m1 = g1.reduce((s, v) => s + v, 0) / len;
+    const m2 = g2.reduce((s, v) => s + v, 0) / len;
+
+    let bestNcc = -Infinity;
+
+    for (let dy = -SHIFT; dy <= SHIFT; dy++) {
+        for (let dx = -SHIFT; dx <= SHIFT; dx++) {
+            let num = 0, den1 = 0, den2 = 0;
+            for (let y = 0; y < h; y++) {
+                const y2 = Math.max(0, Math.min(h-1, y + dy));
+                for (let x = 0; x < w; x++) {
+                    const x2 = Math.max(0, Math.min(w-1, x + dx));
+                    const i1 = y * w + x;
+                    const i2 = y2 * w + x2;
+                    const v1 = g1[i1] - m1;
+                    const v2 = g2[i2] - m2;
+                    num += v1 * v2;
+                    den1 += v1 * v1;
+                    den2 += v2 * v2;
+                }
+            }
+            const ncc = num / (Math.sqrt(den1 * den2) + 1e-6);
+            if (ncc > bestNcc) bestNcc = ncc;
+        }
+    }
+
+    return 1 - bestNcc;
 }
 
 function downloadImage(url, filename) {
