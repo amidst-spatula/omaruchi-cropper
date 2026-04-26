@@ -24,15 +24,29 @@ const NIKKE_CONFIG = {
  * Settings Management
  */
 class SettingsManager {
-    static STORAGE_KEY = 'nikke_cropper_yOffset';
+    static CHAR_KEY = 'nikke_cropper_charYOffset';
+    static NAME_KEY = 'nikke_cropper_nameYOffset';
+    static OLD_KEY = 'nikke_cropper_yOffset';
 
     static load() {
-        const saved = localStorage.getItem(this.STORAGE_KEY);
-        return saved !== null ? parseInt(saved, 10) : 0;
+        let charOffset = localStorage.getItem(this.CHAR_KEY);
+        let nameOffset = localStorage.getItem(this.NAME_KEY);
+
+        // 互換性チェック: 古いキーがある場合は charOffset として扱う
+        if (charOffset === null) {
+            const old = localStorage.getItem(this.OLD_KEY);
+            charOffset = old !== null ? old : 0;
+        }
+
+        return {
+            charYOffset: parseInt(charOffset, 10) || 0,
+            nameYOffset: parseInt(nameOffset, 10) || 0
+        };
     }
 
-    static save(value) {
-        localStorage.setItem(this.STORAGE_KEY, value);
+    static save(charY, nameY) {
+        localStorage.setItem(this.CHAR_KEY, charY);
+        localStorage.setItem(this.NAME_KEY, nameY);
     }
 }
 
@@ -174,7 +188,7 @@ class ImageProcessor {
         return { W, H, offsetX, offsetY };
     }
 
-    extractNames(img, charY_Base, charHeight, nameAreaHeight) {
+    extractNames(img, nameY_Base, charHeight, nameAreaHeight) {
         const imgNames = [];
         const { W: imgW, offsetX: imgOffX } = ImageProcessor.calculateSafeSize(img);
         
@@ -185,44 +199,45 @@ class ImageProcessor {
             const cardX = imgOffX + (imgW * SPACE_RATIO) + i * (imgW * CARD_RATIO + imgW * SPACE_RATIO);
             const charX = cardX - (imgW * SPACE_RATIO / 2);
             
-            const nY = charY_Base + charHeight * 0.75;
+            // 名前エリアの切り抜き。nameY_Base は名前解析枠の上端
             const nH = nameAreaHeight - (charHeight * 0.75);
             
             this.helperCanvas.width = cropWidth;
             this.helperCanvas.height = nH;
-            this.helperCtx.drawImage(img, charX, nY, cropWidth, nH, 0, 0, cropWidth, nH);
+            this.helperCtx.drawImage(img, charX, nameY_Base, cropWidth, nH, 0, 0, cropWidth, nH);
             imgNames.push(this.helperCtx.getImageData(0, 0, cropWidth, nH));
         }
         return imgNames;
     }
 
-    calculateMappings(images, manualYOffset) {
+    calculateMappings(images, charYOffset, nameYOffset) {
         if (images.length === 0) return [];
 
         const { H } = ImageProcessor.calculateSafeSize(images[0]);
         const deadZoneOffset = ImageProcessor.getAutoDeadZoneOffset(images[0]);
         const { BASE_Y, CHAR_HEIGHT, FULL_HEIGHT } = NIKKE_CONFIG.CROP;
 
-        const charY_Base = (H * BASE_Y) + deadZoneOffset + manualYOffset;
         const charHeight = H * CHAR_HEIGHT;
         const nameAreaHeight = H * FULL_HEIGHT;
+        // 名前解析用の Y 座標。ベース位置 + デッドゾーン + 名前枠用個別オフセット + (キャラ枠内での名前開始位置の比率)
+        const nameY_Base = (H * BASE_Y) + deadZoneOffset + nameYOffset + (charHeight * 0.75);
 
-        const referenceNames = this.extractNames(images[0], charY_Base, charHeight, nameAreaHeight);
+        const referenceNames = this.extractNames(images[0], nameY_Base, charHeight, nameAreaHeight);
 
         return images.map(img => {
-            const currentNames = this.extractNames(img, charY_Base, charHeight, nameAreaHeight);
+            const currentNames = this.extractNames(img, nameY_Base, charHeight, nameAreaHeight);
             return ImageMatcher.findBestMapping(referenceNames, currentNames);
         });
     }
 
-    combineImages(images, mappings, manualYOffset) {
+    combineImages(images, mappings, charYOffset) {
         if (images.length === 0 || mappings.length === 0) return null;
 
         const { W, H } = ImageProcessor.calculateSafeSize(images[0]);
         const deadZoneOffset = ImageProcessor.getAutoDeadZoneOffset(images[0]);
         const { BASE_Y, CHAR_HEIGHT, SPACE_RATIO, CARD_RATIO, CROP_W_RATIO } = NIKKE_CONFIG.CROP;
 
-        const charY_Base = (H * BASE_Y) + deadZoneOffset + manualYOffset;
+        const charY_Base = (H * BASE_Y) + deadZoneOffset + charYOffset;
         const charHeight = H * CHAR_HEIGHT;
         const cropWidth = W * CROP_W_RATIO;
 
@@ -280,8 +295,10 @@ class UIManager {
         this.adjustmentWrapper = document.getElementById('adjustmentWrapper');
         this.adjustmentCanvas = document.getElementById('adjustmentCanvas');
         this.cropOverlay = document.getElementById('cropOverlay');
-        this.yOffsetRange = document.getElementById('yOffsetRange');
+        this.charYOffsetInput = document.getElementById('charYOffset');
+        this.nameYOffsetInput = document.getElementById('nameYOffset');
         this.previewContainer = document.getElementById('previewContainer');
+        this.adjustModeRadios = document.getElementsByName('adjustMode');
     }
 
     initEvents() {
@@ -295,6 +312,14 @@ class UIManager {
         window.addEventListener('touchmove', (e) => this.drag(e), { passive: false });
         window.addEventListener('mouseup', () => this.endDrag());
         window.addEventListener('touchend', () => this.endDrag());
+
+        this.adjustModeRadios.forEach(radio => {
+            radio.addEventListener('change', () => this.updateAdjustmentPreview());
+        });
+    }
+
+    get activeMode() {
+        return Array.from(this.adjustModeRadios).find(r => r.checked)?.value || 'character';
     }
 
     toggleSettings() {
@@ -309,7 +334,10 @@ class UIManager {
         if (this.app.loadedImages.length === 0) return;
         this.isDragging = true;
         this.startY = e.clientY || e.touches[0].clientY;
-        this.initialYOffset = parseInt(this.yOffsetRange.value, 10);
+        
+        const mode = this.activeMode;
+        this.initialYOffset = parseInt(mode === 'character' ? this.charYOffsetInput.value : this.nameYOffsetInput.value, 10);
+        
         if (e.type === 'touchstart') e.preventDefault();
     }
 
@@ -323,9 +351,14 @@ class UIManager {
         const scale = (img.height * displayHeightLimit) / this.adjustmentCanvas.clientHeight;
         
         const newOffset = this.initialYOffset + (deltaY * scale);
-        this.yOffsetRange.value = Math.round(newOffset);
         
-        this.app.saveSettings(this.yOffsetRange.value);
+        if (this.activeMode === 'character') {
+            this.charYOffsetInput.value = Math.round(newOffset);
+        } else {
+            this.nameYOffsetInput.value = Math.round(newOffset);
+        }
+        
+        this.app.saveSettings();
 
         if (this.rafId) cancelAnimationFrame(this.rafId);
         this.rafId = requestAnimationFrame(() => {
@@ -337,10 +370,14 @@ class UIManager {
     }
 
     endDrag() {
+        if (!this.isDragging) return;
         this.isDragging = false;
         if (this.rafId) cancelAnimationFrame(this.rafId);
-        // ドラッグ終了時にマッピングを再計算（位置が大きく変わった可能性があるため）
-        this.app.recalculateMappings();
+        
+        // 名前枠の調整終了時のみマッピングを再計算
+        if (this.activeMode === 'name') {
+            this.app.recalculateMappings();
+        }
     }
 
     updateAdjustmentPreview() {
@@ -356,13 +393,18 @@ class UIManager {
         ctx.drawImage(img, 0, 0, img.width, img.height * displayHeightLimit, 0, 0, this.adjustmentCanvas.width, this.adjustmentCanvas.height);
 
         const { W, H, offsetX } = ImageProcessor.calculateSafeSize(img);
-        const manualYOffset = parseInt(this.yOffsetRange.value, 10);
         const deadZoneOffset = ImageProcessor.getAutoDeadZoneOffset(img);
 
-        const { BASE_Y, CHAR_HEIGHT, SPACE_RATIO, CARD_RATIO, CROP_W_RATIO } = NIKKE_CONFIG.CROP;
+        const charYOffset = parseInt(this.charYOffsetInput.value, 10);
+        const nameYOffset = parseInt(this.nameYOffsetInput.value, 10);
 
-        const charY_Base = (H * BASE_Y) + deadZoneOffset + manualYOffset;
+        const { BASE_Y, CHAR_HEIGHT, FULL_HEIGHT, SPACE_RATIO, CARD_RATIO, CROP_W_RATIO } = NIKKE_CONFIG.CROP;
+
+        const charY_Base = (H * BASE_Y) + deadZoneOffset + charYOffset;
         const charHeight = H * CHAR_HEIGHT;
+        const nameAreaHeight = H * FULL_HEIGHT;
+        const nameY_Base = (H * BASE_Y) + deadZoneOffset + nameYOffset + (charHeight * 0.75);
+        const nameHeight = nameAreaHeight - (charHeight * 0.75);
         
         const space = W * SPACE_RATIO;
         const cardWidth = W * CARD_RATIO;
@@ -372,26 +414,53 @@ class UIManager {
         const toPercentY = (val) => (val / (img.height * displayHeightLimit)) * 100;
 
         const firstCharX = (offsetX + space) - (space / 2);
+        const mode = this.activeMode;
 
+        // キャラ枠オーバーレイ
         this.cropOverlay.style.left = toPercentX(firstCharX) + '%';
         this.cropOverlay.style.top = toPercentY(charY_Base) + '%';
         this.cropOverlay.style.width = toPercentX(cropWidth * NIKKE_CONFIG.MATCHING.SAMPLE_COUNT) + '%';
         this.cropOverlay.style.height = toPercentY(charHeight) + '%';
+        this.cropOverlay.classList.toggle('active', mode === 'character');
 
-        const existingFrames = this.adjustmentWrapper.querySelectorAll('.crop-frame');
+        // 名前枠オーバーレイ（新規追加）
+        let nameOverlay = document.getElementById('nameCropOverlay');
+        if (!nameOverlay) {
+            nameOverlay = document.createElement('div');
+            nameOverlay.id = 'nameCropOverlay';
+            nameOverlay.className = 'name-crop-overlay';
+            this.adjustmentWrapper.appendChild(nameOverlay);
+        }
+        nameOverlay.style.left = toPercentX(firstCharX) + '%';
+        nameOverlay.style.top = toPercentY(nameY_Base) + '%';
+        nameOverlay.style.width = toPercentX(cropWidth * NIKKE_CONFIG.MATCHING.SAMPLE_COUNT) + '%';
+        nameOverlay.style.height = toPercentY(nameHeight) + '%';
+        nameOverlay.classList.toggle('active', mode === 'name');
+
+        const existingFrames = this.adjustmentWrapper.querySelectorAll('.crop-frame, .name-crop-frame');
         existingFrames.forEach(f => f.remove());
 
         for(let i=0; i<NIKKE_CONFIG.MATCHING.SAMPLE_COUNT; i++) {
-            const frame = document.createElement('div');
-            frame.className = 'crop-frame';
             const cardX = offsetX + space + i * (cardWidth + space);
             const charX = cardX - (space / 2);
-            
+
+            // キャラ枠
+            const frame = document.createElement('div');
+            frame.className = 'crop-frame';
             frame.style.left = toPercentX(charX) + '%';
             frame.style.top = toPercentY(charY_Base) + '%';
             frame.style.width = toPercentX(cropWidth) + '%';
             frame.style.height = toPercentY(charHeight) + '%';
             this.adjustmentWrapper.appendChild(frame);
+
+            // 名前枠
+            const nameFrame = document.createElement('div');
+            nameFrame.className = 'name-crop-frame';
+            nameFrame.style.left = toPercentX(charX) + '%';
+            nameFrame.style.top = toPercentY(nameY_Base) + '%';
+            nameFrame.style.width = toPercentX(cropWidth) + '%';
+            nameFrame.style.height = toPercentY(nameHeight) + '%';
+            this.adjustmentWrapper.appendChild(nameFrame);
         }
     }
 
@@ -442,8 +511,9 @@ class App {
     }
 
     init() {
-        const savedOffset = SettingsManager.load();
-        this.ui.yOffsetRange.value = savedOffset;
+        const settings = SettingsManager.load();
+        this.ui.charYOffsetInput.value = settings.charYOffset;
+        this.ui.nameYOffsetInput.value = settings.nameYOffset;
     }
 
     async handleImageUpload(files) {
@@ -463,8 +533,9 @@ class App {
     }
 
     recalculateMappings() {
-        const manualYOffset = parseInt(this.ui.yOffsetRange.value, 10);
-        this.imageMappings = this.processor.calculateMappings(this.loadedImages, manualYOffset);
+        const charY = parseInt(this.ui.charYOffsetInput.value, 10);
+        const nameY = parseInt(this.ui.nameYOffsetInput.value, 10);
+        this.imageMappings = this.processor.calculateMappings(this.loadedImages, charY, nameY);
     }
 
     loadImage(file) {
@@ -482,21 +553,24 @@ class App {
     }
 
     resetAdjustment() {
-        this.ui.yOffsetRange.value = 0;
-        this.saveSettings(0);
+        this.ui.charYOffsetInput.value = 0;
+        this.ui.nameYOffsetInput.value = 0;
+        this.saveSettings();
         this.recalculateMappings();
         this.ui.updateAdjustmentPreview();
         this.render();
     }
 
-    saveSettings(value) {
-        SettingsManager.save(value);
+    saveSettings() {
+        const charY = this.ui.charYOffsetInput.value;
+        const nameY = this.ui.nameYOffsetInput.value;
+        SettingsManager.save(charY, nameY);
     }
 
     render() {
         if (this.loadedImages.length === 0) return;
-        const manualYOffset = parseInt(this.ui.yOffsetRange.value, 10);
-        const resultURL = this.processor.combineImages(this.loadedImages, this.imageMappings, manualYOffset);
+        const charY = parseInt(this.ui.charYOffsetInput.value, 10);
+        const resultURL = this.processor.combineImages(this.loadedImages, this.imageMappings, charY);
         this.ui.displayResults(resultURL);
     }
 }
