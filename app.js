@@ -9,7 +9,10 @@ const NIKKE_CONFIG = {
         CHAR_HEIGHT: 0.296875, // H * 0.296875
         SPACE_RATIO: 35 / 1080,
         CARD_RATIO: 174 / 1080,
-        CROP_W_RATIO: 209 / 1080
+        CROP_W_RATIO: 209 / 1080,
+        // 名前枠（sort_by_name.py を参考）
+        NAME_TOP_OFFSET_RATIO: 314 / 1080, // キャラ枠上端からの距離
+        NAME_HEIGHT_RATIO: 38 / 1080        // 名前枠自体の高さ
     },
     MATCHING: {
         SHIFT: 4,
@@ -188,7 +191,7 @@ class ImageProcessor {
         return { W, H, offsetX, offsetY };
     }
 
-    extractNames(img, nameY_Base, charHeight, nameAreaHeight) {
+    extractNames(img, nameY_Base, nameHeight) {
         const imgNames = [];
         const { W: imgW, offsetX: imgOffX } = ImageProcessor.calculateSafeSize(img);
         
@@ -199,13 +202,10 @@ class ImageProcessor {
             const cardX = imgOffX + (imgW * SPACE_RATIO) + i * (imgW * CARD_RATIO + imgW * SPACE_RATIO);
             const charX = cardX - (imgW * SPACE_RATIO / 2);
             
-            // 名前エリアの切り抜き。nameY_Base は名前解析枠の上端
-            const nH = nameAreaHeight - (charHeight * 0.75);
-            
             this.helperCanvas.width = cropWidth;
-            this.helperCanvas.height = nH;
-            this.helperCtx.drawImage(img, charX, nameY_Base, cropWidth, nH, 0, 0, cropWidth, nH);
-            imgNames.push(this.helperCtx.getImageData(0, 0, cropWidth, nH));
+            this.helperCanvas.height = nameHeight;
+            this.helperCtx.drawImage(img, charX, nameY_Base, cropWidth, nameHeight, 0, 0, cropWidth, nameHeight);
+            imgNames.push(this.helperCtx.getImageData(0, 0, cropWidth, nameHeight));
         }
         return imgNames;
     }
@@ -215,17 +215,17 @@ class ImageProcessor {
 
         const { H } = ImageProcessor.calculateSafeSize(images[0]);
         const deadZoneOffset = ImageProcessor.getAutoDeadZoneOffset(images[0]);
-        const { BASE_Y, CHAR_HEIGHT, FULL_HEIGHT } = NIKKE_CONFIG.CROP;
+        const { BASE_Y, NAME_TOP_OFFSET_RATIO, NAME_HEIGHT_RATIO } = NIKKE_CONFIG.CROP;
 
-        const charHeight = H * CHAR_HEIGHT;
-        const nameAreaHeight = H * FULL_HEIGHT;
-        // 名前解析用の Y 座標。ベース位置 + デッドゾーン + 名前枠用個別オフセット + (キャラ枠内での名前開始位置の比率)
-        const nameY_Base = (H * BASE_Y) + deadZoneOffset + nameYOffset + (charHeight * 0.75);
+        // 名前解析用の Y 座標。ベース位置 + デッドゾーン + キャラ枠からのオフセット + 個別調整オフセット
+        const charY_Base_NoOffset = (H * BASE_Y) + deadZoneOffset;
+        const nameY_Base = charY_Base_NoOffset + (H * NAME_TOP_OFFSET_RATIO) + nameYOffset;
+        const nameHeight = H * NAME_HEIGHT_RATIO;
 
-        const referenceNames = this.extractNames(images[0], nameY_Base, charHeight, nameAreaHeight);
+        const referenceNames = this.extractNames(images[0], nameY_Base, nameHeight);
 
         return images.map(img => {
-            const currentNames = this.extractNames(img, nameY_Base, charHeight, nameAreaHeight);
+            const currentNames = this.extractNames(img, nameY_Base, nameHeight);
             return ImageMatcher.findBestMapping(referenceNames, currentNames);
         });
     }
@@ -299,6 +299,14 @@ class UIManager {
         this.nameYOffsetInput = document.getElementById('nameYOffset');
         this.previewContainer = document.getElementById('previewContainer');
         this.adjustModeRadios = document.getElementsByName('adjustMode');
+
+        // デバッグ用チェック
+        if (!this.charYOffsetInput || !this.nameYOffsetInput) {
+            console.error('必要なDOM要素が見つかりません。index.htmlが正しく更新されているか確認してください。', {
+                charY: this.charYOffsetInput,
+                nameY: this.nameYOffsetInput
+            });
+        }
     }
 
     initEvents() {
@@ -398,13 +406,12 @@ class UIManager {
         const charYOffset = parseInt(this.charYOffsetInput.value, 10);
         const nameYOffset = parseInt(this.nameYOffsetInput.value, 10);
 
-        const { BASE_Y, CHAR_HEIGHT, FULL_HEIGHT, SPACE_RATIO, CARD_RATIO, CROP_W_RATIO } = NIKKE_CONFIG.CROP;
+        const { BASE_Y, CHAR_HEIGHT, SPACE_RATIO, CARD_RATIO, CROP_W_RATIO, NAME_TOP_OFFSET_RATIO, NAME_HEIGHT_RATIO } = NIKKE_CONFIG.CROP;
 
         const charY_Base = (H * BASE_Y) + deadZoneOffset + charYOffset;
         const charHeight = H * CHAR_HEIGHT;
-        const nameAreaHeight = H * FULL_HEIGHT;
-        const nameY_Base = (H * BASE_Y) + deadZoneOffset + nameYOffset + (charHeight * 0.75);
-        const nameHeight = nameAreaHeight - (charHeight * 0.75);
+        const nameY_Base = (H * BASE_Y) + deadZoneOffset + (H * NAME_TOP_OFFSET_RATIO) + nameYOffset;
+        const nameHeight = H * NAME_HEIGHT_RATIO;
         
         const space = W * SPACE_RATIO;
         const cardWidth = W * CARD_RATIO;
@@ -512,8 +519,8 @@ class App {
 
     init() {
         const settings = SettingsManager.load();
-        this.ui.charYOffsetInput.value = settings.charYOffset;
-        this.ui.nameYOffsetInput.value = settings.nameYOffset;
+        if (this.ui.charYOffsetInput) this.ui.charYOffsetInput.value = settings.charYOffset;
+        if (this.ui.nameYOffsetInput) this.ui.nameYOffsetInput.value = settings.nameYOffset;
     }
 
     async handleImageUpload(files) {
