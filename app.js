@@ -123,6 +123,8 @@ class ImageProcessor {
     constructor() {
         this.helperCanvas = document.createElement('canvas');
         this.helperCtx = this.helperCanvas.getContext('2d');
+        this.resultCanvas = document.createElement('canvas');
+        this.resultCtx = this.resultCanvas.getContext('2d');
     }
 
     static getSafeAreaTop() {
@@ -194,29 +196,48 @@ class ImageProcessor {
         return imgNames;
     }
 
-    combineImages(images, manualYOffset) {
-        if (images.length === 0) return null;
+    calculateMappings(images, manualYOffset) {
+        if (images.length === 0) return [];
 
-        const { W, H, offsetX } = ImageProcessor.calculateSafeSize(images[0]);
+        const { H } = ImageProcessor.calculateSafeSize(images[0]);
         const deadZoneOffset = ImageProcessor.getAutoDeadZoneOffset(images[0]);
-
-        const { BASE_Y, CHAR_HEIGHT, FULL_HEIGHT, SPACE_RATIO, CARD_RATIO, CROP_W_RATIO } = NIKKE_CONFIG.CROP;
+        const { BASE_Y, CHAR_HEIGHT, FULL_HEIGHT } = NIKKE_CONFIG.CROP;
 
         const charY_Base = (H * BASE_Y) + deadZoneOffset + manualYOffset;
         const charHeight = H * CHAR_HEIGHT;
         const nameAreaHeight = H * FULL_HEIGHT;
-        const cropWidth = W * CROP_W_RATIO;
 
         const referenceNames = this.extractNames(images[0], charY_Base, charHeight, nameAreaHeight);
 
-        const finalCanvas = document.createElement('canvas');
-        finalCanvas.width = cropWidth * NIKKE_CONFIG.MATCHING.SAMPLE_COUNT;
-        finalCanvas.height = charHeight * images.length;
-        const ctx = finalCanvas.getContext('2d');
+        return images.map(img => {
+            const currentNames = this.extractNames(img, charY_Base, charHeight, nameAreaHeight);
+            return ImageMatcher.findBestMapping(referenceNames, currentNames);
+        });
+    }
+
+    combineImages(images, mappings, manualYOffset) {
+        if (images.length === 0 || mappings.length === 0) return null;
+
+        const { W, H } = ImageProcessor.calculateSafeSize(images[0]);
+        const deadZoneOffset = ImageProcessor.getAutoDeadZoneOffset(images[0]);
+        const { BASE_Y, CHAR_HEIGHT, SPACE_RATIO, CARD_RATIO, CROP_W_RATIO } = NIKKE_CONFIG.CROP;
+
+        const charY_Base = (H * BASE_Y) + deadZoneOffset + manualYOffset;
+        const charHeight = H * CHAR_HEIGHT;
+        const cropWidth = W * CROP_W_RATIO;
+
+        const targetWidth = cropWidth * NIKKE_CONFIG.MATCHING.SAMPLE_COUNT;
+        const targetHeight = charHeight * images.length;
+
+        if (this.resultCanvas.width !== targetWidth || this.resultCanvas.height !== targetHeight) {
+            this.resultCanvas.width = targetWidth;
+            this.resultCanvas.height = targetHeight;
+        } else {
+            this.resultCtx.clearRect(0, 0, targetWidth, targetHeight);
+        }
 
         images.forEach((img, rowIndex) => {
-            const currentNames = this.extractNames(img, charY_Base, charHeight, nameAreaHeight);
-            const mapping = ImageMatcher.findBestMapping(referenceNames, currentNames);
+            const mapping = mappings[rowIndex];
 
             for (let targetIdx = 0; targetIdx < NIKKE_CONFIG.MATCHING.SAMPLE_COUNT; targetIdx++) {
                 const sourceIdx = mapping[targetIdx];
@@ -228,11 +249,11 @@ class ImageProcessor {
                 const destX = targetIdx * cropWidth;
                 const destY = rowIndex * charHeight;
 
-                ctx.drawImage(img, charX, charY_Base, cropWidth, charHeight, destX, destY, cropWidth, charHeight);
+                this.resultCtx.drawImage(img, charX, charY_Base, cropWidth, charHeight, destX, destY, cropWidth, charHeight);
             }
         });
 
-        return finalCanvas.toDataURL('image/png');
+        return this.resultCanvas.toDataURL('image/png');
     }
 }
 
@@ -245,6 +266,7 @@ class UIManager {
         this.isDragging = false;
         this.startY = 0;
         this.initialYOffset = 0;
+        this.rafId = null;
 
         this.initElements();
         this.initEvents();
@@ -304,14 +326,21 @@ class UIManager {
         this.yOffsetRange.value = Math.round(newOffset);
         
         this.app.saveSettings(this.yOffsetRange.value);
-        this.updateAdjustmentPreview();
-        this.app.render();
+
+        if (this.rafId) cancelAnimationFrame(this.rafId);
+        this.rafId = requestAnimationFrame(() => {
+            this.updateAdjustmentPreview();
+            this.app.render();
+        });
 
         if (e.type === 'touchmove') e.preventDefault();
     }
 
     endDrag() {
         this.isDragging = false;
+        if (this.rafId) cancelAnimationFrame(this.rafId);
+        // ドラッグ終了時にマッピングを再計算（位置が大きく変わった可能性があるため）
+        this.app.recalculateMappings();
     }
 
     updateAdjustmentPreview() {
@@ -405,6 +434,7 @@ class UIManager {
 class App {
     constructor() {
         this.loadedImages = [];
+        this.imageMappings = []; // キャッシュされたマッピング
         this.processor = new ImageProcessor();
         this.ui = new UIManager(this);
 
@@ -423,12 +453,18 @@ class App {
 
         try {
             this.loadedImages = await Promise.all(Array.from(files).map(file => this.loadImage(file)));
+            this.recalculateMappings();
             this.ui.updateAdjustmentPreview();
             this.render();
         } catch (error) {
             console.error('画像の読み込みに失敗しました:', error);
             this.ui.showError();
         }
+    }
+
+    recalculateMappings() {
+        const manualYOffset = parseInt(this.ui.yOffsetRange.value, 10);
+        this.imageMappings = this.processor.calculateMappings(this.loadedImages, manualYOffset);
     }
 
     loadImage(file) {
@@ -448,6 +484,7 @@ class App {
     resetAdjustment() {
         this.ui.yOffsetRange.value = 0;
         this.saveSettings(0);
+        this.recalculateMappings();
         this.ui.updateAdjustmentPreview();
         this.render();
     }
@@ -459,7 +496,7 @@ class App {
     render() {
         if (this.loadedImages.length === 0) return;
         const manualYOffset = parseInt(this.ui.yOffsetRange.value, 10);
-        const resultURL = this.processor.combineImages(this.loadedImages, manualYOffset);
+        const resultURL = this.processor.combineImages(this.loadedImages, this.imageMappings, manualYOffset);
         this.ui.displayResults(resultURL);
     }
 }
