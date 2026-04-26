@@ -71,33 +71,37 @@ class ImageMatcher {
         const len = w * h;
         const SHIFT = NIKKE_CONFIG.MATCHING.SHIFT;
 
-        function gray(data) {
-            const g = new Float64Array(len);
-            for (let i = 0; i < len; i++) {
-                g[i] = (data[i * 4] + data[i * 4 + 1] + data[i * 4 + 2]) / 3;
-            }
-            return g;
+        // グレースケール変換を高速化
+        const g1 = new Uint8Array(len);
+        const g2 = new Uint8Array(len);
+        let s1 = 0, s2 = 0;
+        for (let i = 0; i < len; i++) {
+            const i4 = i * 4;
+            // 輝度（Luma）に近い重み付けでグレースケール化
+            const v1 = (d1[i4] * 0.299 + d1[i4 + 1] * 0.587 + d1[i4 + 2] * 0.114) | 0;
+            const v2 = (d2[i4] * 0.299 + d2[i4 + 1] * 0.587 + d2[i4 + 2] * 0.114) | 0;
+            g1[i] = v1;
+            g2[i] = v2;
+            s1 += v1;
+            s2 += v2;
         }
 
-        const g1 = gray(d1);
-        const g2 = gray(d2);
+        const m1 = s1 / len;
+        const m2 = s2 / len;
 
-        const m1 = g1.reduce((s, v) => s + v, 0) / len;
-        const m2 = g2.reduce((s, v) => s + v, 0) / len;
-
-        let bestNcc = -Infinity;
+        let bestNcc = -1;
 
         for (let dy = -SHIFT; dy <= SHIFT; dy++) {
             for (let dx = -SHIFT; dx <= SHIFT; dx++) {
                 let num = 0, den1 = 0, den2 = 0;
                 for (let y = 0; y < h; y++) {
                     const y2 = Math.max(0, Math.min(h - 1, y + dy));
+                    const row1 = y * w;
+                    const row2 = y2 * w;
                     for (let x = 0; x < w; x++) {
                         const x2 = Math.max(0, Math.min(w - 1, x + dx));
-                        const i1 = y * w + x;
-                        const i2 = y2 * w + x2;
-                        const v1 = g1[i1] - m1;
-                        const v2 = g2[i2] - m2;
+                        const v1 = g1[row1 + x] - m1;
+                        const v2 = g2[row2 + x2] - m2;
                         num += v1 * v2;
                         den1 += v1 * v1;
                         den2 += v2 * v2;
