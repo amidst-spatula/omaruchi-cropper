@@ -1,4 +1,26 @@
 /**
+ * Configuration Constants
+ */
+const NIKKE_CONFIG = {
+    ASPECT_RATIO: 9 / 16,
+    CROP: {
+        BASE_Y: 0.1875,      // H * 0.1875
+        FULL_HEIGHT: 1 / 3,  // H / 3
+        CHAR_HEIGHT: 0.296875, // H * 0.296875
+        SPACE_RATIO: 35 / 1080,
+        CARD_RATIO: 174 / 1080,
+        CROP_W_RATIO: 209 / 1080
+    },
+    MATCHING: {
+        SHIFT: 4,
+        SAMPLE_COUNT: 5
+    },
+    UI: {
+        DISPLAY_HEIGHT_LIMIT: 0.7
+    }
+};
+
+/**
  * Settings Management
  */
 class SettingsManager {
@@ -20,9 +42,10 @@ class SettingsManager {
 class ImageMatcher {
     static findBestMapping(refs, currents) {
         const mapping = [];
-        const availableSources = [0, 1, 2, 3, 4];
+        const count = NIKKE_CONFIG.MATCHING.SAMPLE_COUNT;
+        const availableSources = Array.from({ length: count }, (_, i) => i);
 
-        for (let r = 0; r < 5; r++) {
+        for (let r = 0; r < count; r++) {
             let minDiff = Infinity;
             let bestIdxIdx = -1;
 
@@ -46,7 +69,7 @@ class ImageMatcher {
         const w = data1.width;
         const h = data1.height;
         const len = w * h;
-        const SHIFT = 4;
+        const SHIFT = NIKKE_CONFIG.MATCHING.SHIFT;
 
         function gray(data) {
             const g = new Float64Array(len);
@@ -127,7 +150,7 @@ class ImageProcessor {
     static calculateSafeSize(img) {
         const imageW = img.width;
         const imageH = img.height;
-        const targetRatio = 9 / 16;
+        const targetRatio = NIKKE_CONFIG.ASPECT_RATIO;
         const imageRatio = imageW / imageH;
 
         let W, H, offsetX, offsetY;
@@ -147,16 +170,14 @@ class ImageProcessor {
 
     extractNames(img, charY_Base, charHeight, nameAreaHeight) {
         const imgNames = [];
-        const { W: imgW, H: imgH, offsetX: imgOffX } = ImageProcessor.calculateSafeSize(img);
+        const { W: imgW, offsetX: imgOffX } = ImageProcessor.calculateSafeSize(img);
         
-        const spaceRatio = 35 / 1080;
-        const cardRatio = 174 / 1080;
-        const cropWidthRatio = 209 / 1080;
-        const cropWidth = imgW * cropWidthRatio;
+        const { SPACE_RATIO, CARD_RATIO, CROP_W_RATIO } = NIKKE_CONFIG.CROP;
+        const cropWidth = imgW * CROP_W_RATIO;
 
-        for (let i = 0; i < 5; i++) {
-            const cardX = imgOffX + (imgW * spaceRatio) + i * (imgW * cardRatio + imgW * spaceRatio);
-            const charX = cardX - (imgW * spaceRatio / 2);
+        for (let i = 0; i < NIKKE_CONFIG.MATCHING.SAMPLE_COUNT; i++) {
+            const cardX = imgOffX + (imgW * SPACE_RATIO) + i * (imgW * CARD_RATIO + imgW * SPACE_RATIO);
+            const charX = cardX - (imgW * SPACE_RATIO / 2);
             
             const nY = charY_Base + charHeight * 0.75;
             const nH = nameAreaHeight - (charHeight * 0.75);
@@ -175,19 +196,17 @@ class ImageProcessor {
         const { W, H, offsetX } = ImageProcessor.calculateSafeSize(images[0]);
         const deadZoneOffset = ImageProcessor.getAutoDeadZoneOffset(images[0]);
 
-        const charY_Base = (H * 0.1875) + deadZoneOffset + manualYOffset;
-        const charHeight = H * 0.296875;
-        const nameAreaHeight = H / 3;
+        const { BASE_Y, CHAR_HEIGHT, FULL_HEIGHT, SPACE_RATIO, CARD_RATIO, CROP_W_RATIO } = NIKKE_CONFIG.CROP;
 
-        const spaceRatio = 35 / 1080;
-        const cardRatio = 174 / 1080;
-        const cropWidthRatio = 209 / 1080;
-        const cropWidth = W * cropWidthRatio;
+        const charY_Base = (H * BASE_Y) + deadZoneOffset + manualYOffset;
+        const charHeight = H * CHAR_HEIGHT;
+        const nameAreaHeight = H * FULL_HEIGHT;
+        const cropWidth = W * CROP_W_RATIO;
 
         const referenceNames = this.extractNames(images[0], charY_Base, charHeight, nameAreaHeight);
 
         const finalCanvas = document.createElement('canvas');
-        finalCanvas.width = cropWidth * 5;
+        finalCanvas.width = cropWidth * NIKKE_CONFIG.MATCHING.SAMPLE_COUNT;
         finalCanvas.height = charHeight * images.length;
         const ctx = finalCanvas.getContext('2d');
 
@@ -195,12 +214,12 @@ class ImageProcessor {
             const currentNames = this.extractNames(img, charY_Base, charHeight, nameAreaHeight);
             const mapping = ImageMatcher.findBestMapping(referenceNames, currentNames);
 
-            for (let targetIdx = 0; targetIdx < 5; targetIdx++) {
+            for (let targetIdx = 0; targetIdx < NIKKE_CONFIG.MATCHING.SAMPLE_COUNT; targetIdx++) {
                 const sourceIdx = mapping[targetIdx];
                 const { W: imgW, offsetX: imgOffX } = ImageProcessor.calculateSafeSize(img);
                 
-                const cardX = imgOffX + (imgW * spaceRatio) + sourceIdx * (imgW * cardRatio + imgW * spaceRatio);
-                const charX = cardX - (imgW * spaceRatio / 2);
+                const cardX = imgOffX + (imgW * SPACE_RATIO) + sourceIdx * (imgW * CARD_RATIO + imgW * SPACE_RATIO);
+                const charX = cardX - (imgW * SPACE_RATIO / 2);
                 
                 const destX = targetIdx * cropWidth;
                 const destY = rowIndex * charHeight;
@@ -274,7 +293,7 @@ class UIManager {
         const deltaY = currentY - this.startY;
 
         const img = this.app.loadedImages[0];
-        const displayHeightLimit = 0.7;
+        const displayHeightLimit = NIKKE_CONFIG.UI.DISPLAY_HEIGHT_LIMIT;
         const scale = (img.height * displayHeightLimit) / this.adjustmentCanvas.clientHeight;
         
         const newOffset = this.initialYOffset + (deltaY * scale);
@@ -296,7 +315,7 @@ class UIManager {
         if (images.length === 0) return;
 
         const img = images[0];
-        const displayHeightLimit = 0.7;
+        const displayHeightLimit = NIKKE_CONFIG.UI.DISPLAY_HEIGHT_LIMIT;
         const ctx = this.adjustmentCanvas.getContext('2d');
         
         this.adjustmentCanvas.width = img.width;
@@ -307,15 +326,14 @@ class UIManager {
         const manualYOffset = parseInt(this.yOffsetRange.value, 10);
         const deadZoneOffset = ImageProcessor.getAutoDeadZoneOffset(img);
 
-        const charY_Base = (H * 0.1875) + deadZoneOffset + manualYOffset;
-        const charHeight = H * 0.296875;
+        const { BASE_Y, CHAR_HEIGHT, SPACE_RATIO, CARD_RATIO, CROP_W_RATIO } = NIKKE_CONFIG.CROP;
+
+        const charY_Base = (H * BASE_Y) + deadZoneOffset + manualYOffset;
+        const charHeight = H * CHAR_HEIGHT;
         
-        const spaceRatio = 35 / 1080;
-        const cardRatio = 174 / 1080;
-        const cropWidthRatio = 209 / 1080;
-        const space = W * spaceRatio;
-        const cardWidth = W * cardRatio;
-        const cropWidth = W * cropWidthRatio;
+        const space = W * SPACE_RATIO;
+        const cardWidth = W * CARD_RATIO;
+        const cropWidth = W * CROP_W_RATIO;
 
         const toPercentX = (val) => (val / img.width) * 100;
         const toPercentY = (val) => (val / (img.height * displayHeightLimit)) * 100;
@@ -324,13 +342,13 @@ class UIManager {
 
         this.cropOverlay.style.left = toPercentX(firstCharX) + '%';
         this.cropOverlay.style.top = toPercentY(charY_Base) + '%';
-        this.cropOverlay.style.width = toPercentX(cropWidth * 5) + '%';
+        this.cropOverlay.style.width = toPercentX(cropWidth * NIKKE_CONFIG.MATCHING.SAMPLE_COUNT) + '%';
         this.cropOverlay.style.height = toPercentY(charHeight) + '%';
 
         const existingFrames = this.adjustmentWrapper.querySelectorAll('.crop-frame');
         existingFrames.forEach(f => f.remove());
 
-        for(let i=0; i<5; i++) {
+        for(let i=0; i<NIKKE_CONFIG.MATCHING.SAMPLE_COUNT; i++) {
             const frame = document.createElement('div');
             frame.className = 'crop-frame';
             const cardX = offsetX + space + i * (cardWidth + space);
