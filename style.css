@@ -89,43 +89,45 @@ header p {
 .crop-overlay {
     position: absolute;
     pointer-events: none;
-    border: 2px solid #007bff;
+    border: none; /* borderを廃止 */
+    box-shadow: 0 0 0 1px #007bff; /* 外側に1pxの線を引く */
     background-color: rgba(0, 123, 255, 0.2);
     box-sizing: border-box;
     z-index: 10;
 }
 
 .crop-overlay.active {
-    border-color: #00ff88;
+    box-shadow: 0 0 0 1px #00ff88, 0 0 10px #00ff88; /* 選択中は線を緑にし、光らせる */
     background-color: rgba(0, 255, 136, 0.3);
-    box-shadow: 0 0 10px #00ff88;
 }
 
 .name-crop-overlay {
     position: absolute;
     pointer-events: none;
-    border: 2px solid #ff0077;
+    border: none;
+    box-shadow: 0 0 0 1px #ff0077;
     background-color: rgba(255, 0, 119, 0.2);
     box-sizing: border-box;
     z-index: 10;
 }
 
 .name-crop-overlay.active {
-    border-color: #ff00ff;
+    box-shadow: 0 0 0 1px #ff00ff, 0 0 10px #ff00ff;
     background-color: rgba(255, 0, 255, 0.3);
-    box-shadow: 0 0 10px #ff00ff;
 }
 
 .crop-frame {
     position: absolute;
-    border: 1px solid rgba(0, 255, 136, 0.5);
+    border: none;
+    box-shadow: 0 0 0 1px rgba(0, 255, 136, 0.5);
     box-sizing: border-box;
     pointer-events: none;
 }
 
 .name-crop-frame {
     position: absolute;
-    border: 1px solid rgba(255, 0, 119, 0.5);
+    border: none;
+    box-shadow: 0 0 0 1px rgba(255, 0, 119, 0.5);
     box-sizing: border-box;
     pointer-events: none;
 }
