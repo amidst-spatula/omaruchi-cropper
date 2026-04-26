@@ -23,8 +23,16 @@
             </section>
 
             <section id="settingsPanel" class="settings-panel hidden">
+                <div class="adjustment-mode-selector" style="margin-bottom: 10px; display: flex; gap: 15px; justify-content: center;">
+                    <label style="cursor: pointer;">
+                        <input type="radio" name="adjustMode" value="character" checked> キャラ枠調整
+                    </label>
+                    <label style="cursor: pointer;">
+                        <input type="radio" name="adjustMode" value="name"> 名前解析枠調整
+                    </label>
+                </div>
                 <div class="adjustment-preview-container">
-                    <p>画像を上下にドラッグして枠を合わせてください</p>
+                    <p>枠を選択し、画像を上下にドラッグして合わせてください</p>
                     <div id="adjustmentWrapper" class="adjustment-wrapper">
                         <canvas id="adjustmentCanvas"></canvas>
                         <div id="cropOverlay" class="crop-overlay"></div>
@@ -35,7 +43,8 @@
                     <span style="font-size: 0.8rem; opacity: 0.7;">※設定は自動的に保存されます</span>
                 </div>
                 <!-- 内部的な値保持用（非表示） -->
-                <input type="hidden" id="yOffsetRange" value="0">
+                <input type="hidden" id="charYOffset" value="0">
+                <input type="hidden" id="nameYOffset" value="0">
             </section>
 
             <section id="previewContainer" class="preview-container">
