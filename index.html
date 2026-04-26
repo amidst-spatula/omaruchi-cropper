@@ -32,7 +32,11 @@
                     </label>
                 </div>
                 <div class="adjustment-preview-container">
-                    <p>枠を選択し、画像を上下にドラッグして合わせてください</p>
+                    <p style="margin-bottom: 5px;"><strong>位置調整のしかた</strong></p>
+                    <ul style="text-align: left; font-size: 0.85rem; opacity: 0.8; margin-top: 0; margin-bottom: 15px; padding-left: 20px;">
+                        <li><strong>キャラ枠調整 (青)</strong>: 画像の切り抜き位置がズレている場合に選択し、画像を上下にドラッグして青い枠をキャラに合わせてください。</li>
+                        <li><strong>名前解析枠調整 (ピンク)</strong>: キャラが正しく並べ替え（ソート）されない場合に選択し、画像を上下にドラッグしてピンクの細い枠をプレイヤー名に合わせてください。</li>
+                    </ul>
                     <div id="adjustmentWrapper" class="adjustment-wrapper">
                         <canvas id="adjustmentCanvas"></canvas>
                         <div id="cropOverlay" class="crop-overlay"></div>
