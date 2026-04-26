@@ -1,254 +1,159 @@
-let loadedImages = [];
-let isDragging = false;
-let startY = 0;
-let initialYOffset = 0;
-
-// 初期化時に保存された設定を読み込む
-window.addEventListener('DOMContentLoaded', loadSettings);
-
-document.getElementById('imageInput').addEventListener('change', handleImageUpload);
-document.getElementById('toggleAdjustBtn').addEventListener('click', toggleSettings);
-document.getElementById('resetAdjustBtn').addEventListener('click', resetAdjustment);
-
-// ドラッグ操作の設定
-const wrapper = document.getElementById('adjustmentWrapper');
-wrapper.addEventListener('mousedown', startDrag);
-wrapper.addEventListener('touchstart', startDrag, { passive: false });
-window.addEventListener('mousemove', drag);
-window.addEventListener('touchmove', drag, { passive: false });
-window.addEventListener('mouseup', endDrag);
-window.addEventListener('touchend', endDrag);
-
-function loadSettings() {
-    const savedYOffset = localStorage.getItem('nikke_cropper_yOffset');
-    if (savedYOffset !== null) {
-        document.getElementById('yOffsetRange').value = savedYOffset;
-    }
-}
-
-function saveSettings() {
-    const yOffset = document.getElementById('yOffsetRange').value;
-    localStorage.setItem('nikke_cropper_yOffset', yOffset);
-}
-
-function resetAdjustment() {
-    document.getElementById('yOffsetRange').value = 0;
-    saveSettings();
-    updateAdjustmentPreview();
-    if (loadedImages.length > 0) combineImages(loadedImages);
-}
-
-function toggleSettings() {
-    const panel = document.getElementById('settingsPanel');
-    const btn = document.getElementById('toggleAdjustBtn');
-    panel.classList.toggle('hidden');
-    btn.textContent = panel.classList.contains('hidden') ? '位置調整を表示' : '位置調整を隠す';
-    if (!panel.classList.contains('hidden')) {
-        updateAdjustmentPreview();
-    }
-}
-
-function startDrag(e) {
-    if (loadedImages.length === 0) return;
-    isDragging = true;
-    startY = e.clientY || e.touches[0].clientY;
-    initialYOffset = parseInt(document.getElementById('yOffsetRange').value, 10);
-    if (e.type === 'touchstart') e.preventDefault();
-}
-
-function drag(e) {
-    if (!isDragging) return;
-    const currentY = e.clientY || (e.touches ? e.touches[0].clientY : 0);
-    const deltaY = currentY - startY;
-
-    const canvas = document.getElementById('adjustmentCanvas');
-    const img = loadedImages[0];
-    const displayHeightLimit = 0.7;
-    const scale = (img.height * displayHeightLimit) / canvas.clientHeight;
-    
-    const newOffset = initialYOffset + (deltaY * scale);
-    document.getElementById('yOffsetRange').value = Math.round(newOffset);
-    
-    saveSettings();
-    updateAdjustmentPreview();
-    combineImages(loadedImages);
-
-    if (e.type === 'touchmove') e.preventDefault();
-}
-
-function endDrag() {
-    isDragging = false;
-}
-
-async function handleImageUpload(event) {
-    const files = Array.from(event.target.files);
-    if (!files.length) return;
-
-    const previewContainer = document.getElementById('previewContainer');
-    previewContainer.innerHTML = '<p>処理中...</p>';
-    document.getElementById('toggleAdjustBtn').style.display = 'inline-block';
-
-    try {
-        loadedImages = await Promise.all(files.map(file => {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const img = new Image();
-                    img.onload = () => resolve(img);
-                    img.onerror = reject;
-                    img.src = e.target.result;
-                };
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
-        }));
-
-        updateAdjustmentPreview();
-        combineImages(loadedImages);
-    } catch (error) {
-        console.error('画像の読み込みに失敗しました:', error);
-        previewContainer.innerHTML = '<p>エラーが発生しました。</p>';
-    }
-}
-
-function getSafeAreaTop() {
-    const div = document.createElement('div');
-    div.style.paddingTop = 'env(safe-area-inset-top)';
-    div.style.position = 'fixed';
-    div.style.top = '0';
-    div.style.visibility = 'hidden';
-    document.body.appendChild(div);
-    const insetTop = parseInt(window.getComputedStyle(div).paddingTop, 10) || 0;
-    document.body.removeChild(div);
-    return insetTop;
-}
-
-/** 
- * 画像とデバイスの解像度が一致する場合のみ、自動デッドゾーンオフセットを返す
+/**
+ * Settings Management
  */
-function getAutoDeadZoneOffset(img) {
-    const dpr = window.devicePixelRatio || 1;
-    const physicalScreenWidth = Math.round(window.screen.width * dpr);
-    const physicalScreenHeight = Math.round(window.screen.height * dpr);
+class SettingsManager {
+    static STORAGE_KEY = 'nikke_cropper_yOffset';
 
-    // 解像度が一致（縦横不問）するかチェック
-    const isSameDevice = (img.width === physicalScreenWidth && img.height === physicalScreenHeight) ||
-                         (img.width === physicalScreenHeight && img.height === physicalScreenWidth);
-
-    if (isSameDevice) {
-        return getSafeAreaTop() * dpr;
+    static load() {
+        const saved = localStorage.getItem(this.STORAGE_KEY);
+        return saved !== null ? parseInt(saved, 10) : 0;
     }
-    return 0;
-}
 
-function updateAdjustmentPreview() {
-    if (loadedImages.length === 0) return;
-
-    const img = loadedImages[0];
-    const canvas = document.getElementById('adjustmentCanvas');
-    const wrapper = document.getElementById('adjustmentWrapper');
-    const overlay = document.getElementById('cropOverlay');
-    
-    const displayHeightLimit = 0.7;
-    const ctx = canvas.getContext('2d');
-    canvas.width = img.width;
-    canvas.height = img.height * displayHeightLimit;
-    ctx.drawImage(img, 0, 0, img.width, img.height * displayHeightLimit, 0, 0, canvas.width, canvas.height);
-
-    const { W, H, offsetX } = calculateSafeSize(img);
-    const manualYOffset = parseInt(document.getElementById('yOffsetRange').value, 10);
-    
-    // 自動補正（同じデバイスの場合のみ）
-    const deadZoneOffset = getAutoDeadZoneOffset(img);
-
-    const charY_Base = (H * 0.1875) + deadZoneOffset + manualYOffset;
-    const charHeight = H * 0.296875;
-    
-    const spaceRatio = 35 / 1080;
-    const cardRatio = 174 / 1080;
-    const cropRatio = 209 / 1080;
-    const space = W * spaceRatio;
-    const cardWidth = W * cardRatio;
-    const cropWidth = W * cropRatio;
-
-    const toPercentX = (val) => (val / img.width) * 100;
-    const toPercentY = (val) => (val / (img.height * displayHeightLimit)) * 100;
-
-    const firstCharX = (offsetX + space) - (space / 2);
-
-    overlay.style.left = toPercentX(firstCharX) + '%';
-    overlay.style.top = toPercentY(charY_Base) + '%';
-    overlay.style.width = toPercentX(cropWidth * 5) + '%';
-    overlay.style.height = toPercentY(charHeight) + '%';
-
-    const existingFrames = wrapper.querySelectorAll('.crop-frame');
-    existingFrames.forEach(f => f.remove());
-
-    for(let i=0; i<5; i++) {
-        const frame = document.createElement('div');
-        frame.className = 'crop-frame';
-        const cardX = offsetX + space + i * (cardWidth + space);
-        const charX = cardX - (space / 2);
-        
-        frame.style.left = toPercentX(charX) + '%';
-        frame.style.top = toPercentY(charY_Base) + '%';
-        frame.style.width = toPercentX(cropWidth) + '%';
-        frame.style.height = toPercentY(charHeight) + '%';
-        wrapper.appendChild(frame);
+    static save(value) {
+        localStorage.setItem(this.STORAGE_KEY, value);
     }
 }
 
-function calculateSafeSize(img) {
-    const imageW = img.width;
-    const imageH = img.height;
-    const targetRatio = 9 / 16;
-    const imageRatio = imageW / imageH;
+/**
+ * Image Comparison and Mapping Logic
+ */
+class ImageMatcher {
+    static findBestMapping(refs, currents) {
+        const mapping = [];
+        const availableSources = [0, 1, 2, 3, 4];
 
-    let W, H, offsetX, offsetY;
-    if (imageRatio > targetRatio) {
-        H = imageH;
-        W = H * targetRatio;
-        offsetX = (imageW - W) / 2;
-        offsetY = 0;
-    } else {
-        W = imageW;
-        H = W / targetRatio;
-        offsetX = 0;
-        offsetY = (imageH - H) / 2;
+        for (let r = 0; r < 5; r++) {
+            let minDiff = Infinity;
+            let bestIdxIdx = -1;
+
+            for (let i = 0; i < availableSources.length; i++) {
+                const s = availableSources[i];
+                const diff = this.calculateImageDiff(refs[r], currents[s]);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    bestIdxIdx = i;
+                }
+            }
+            mapping[r] = availableSources[bestIdxIdx];
+            availableSources.splice(bestIdxIdx, 1);
+        }
+        return mapping;
     }
-    return { W, H, offsetX, offsetY };
+
+    static calculateImageDiff(data1, data2) {
+        const d1 = data1.data;
+        const d2 = data2.data;
+        const w = data1.width;
+        const h = data1.height;
+        const len = w * h;
+        const SHIFT = 4;
+
+        function gray(data) {
+            const g = new Float64Array(len);
+            for (let i = 0; i < len; i++) {
+                g[i] = (data[i * 4] + data[i * 4 + 1] + data[i * 4 + 2]) / 3;
+            }
+            return g;
+        }
+
+        const g1 = gray(d1);
+        const g2 = gray(d2);
+
+        const m1 = g1.reduce((s, v) => s + v, 0) / len;
+        const m2 = g2.reduce((s, v) => s + v, 0) / len;
+
+        let bestNcc = -Infinity;
+
+        for (let dy = -SHIFT; dy <= SHIFT; dy++) {
+            for (let dx = -SHIFT; dx <= SHIFT; dx++) {
+                let num = 0, den1 = 0, den2 = 0;
+                for (let y = 0; y < h; y++) {
+                    const y2 = Math.max(0, Math.min(h - 1, y + dy));
+                    for (let x = 0; x < w; x++) {
+                        const x2 = Math.max(0, Math.min(w - 1, x + dx));
+                        const i1 = y * w + x;
+                        const i2 = y2 * w + x2;
+                        const v1 = g1[i1] - m1;
+                        const v2 = g2[i2] - m2;
+                        num += v1 * v2;
+                        den1 += v1 * v1;
+                        den2 += v2 * v2;
+                    }
+                }
+                const ncc = num / (Math.sqrt(den1 * den2) + 1e-6);
+                if (ncc > bestNcc) bestNcc = ncc;
+            }
+        }
+
+        return 1 - bestNcc;
+    }
 }
 
-function combineImages(images) {
-    const previewContainer = document.getElementById('previewContainer');
-    previewContainer.innerHTML = '';
+/**
+ * Image Processing and Coordinate Calculations
+ */
+class ImageProcessor {
+    constructor() {
+        this.helperCanvas = document.createElement('canvas');
+        this.helperCtx = this.helperCanvas.getContext('2d');
+    }
 
-    if (images.length === 0) return;
+    static getSafeAreaTop() {
+        const div = document.createElement('div');
+        div.style.paddingTop = 'env(safe-area-inset-top)';
+        div.style.position = 'fixed';
+        div.style.top = '0';
+        div.style.visibility = 'hidden';
+        document.body.appendChild(div);
+        const insetTop = parseInt(window.getComputedStyle(div).paddingTop, 10) || 0;
+        document.body.removeChild(div);
+        return insetTop;
+    }
 
-    const { W, H, offsetX } = calculateSafeSize(images[0]);
-    const manualYOffset = parseInt(document.getElementById('yOffsetRange').value, 10);
-    
-    const deadZoneOffset = getAutoDeadZoneOffset(images[0]);
+    static getAutoDeadZoneOffset(img) {
+        const dpr = window.devicePixelRatio || 1;
+        const physicalScreenWidth = Math.round(window.screen.width * dpr);
+        const physicalScreenHeight = Math.round(window.screen.height * dpr);
 
-    const charY_Base = (H * 0.1875) + deadZoneOffset + manualYOffset;
-    const charHeight = H * 0.296875;
-    const nameAreaHeight = H / 3;
+        const isSameDevice = (img.width === physicalScreenWidth && img.height === physicalScreenHeight) ||
+                             (img.width === physicalScreenHeight && img.height === physicalScreenWidth);
 
-    const spaceRatio = 35 / 1080;
-    const cardRatio = 174 / 1080;
-    const cropRatio = 209 / 1080;
+        if (isSameDevice) {
+            return this.getSafeAreaTop() * dpr;
+        }
+        return 0;
+    }
 
-    const space = W * spaceRatio;
-    const cardWidth = W * cardRatio;
-    const cropWidth = W * cropRatio;
+    static calculateSafeSize(img) {
+        const imageW = img.width;
+        const imageH = img.height;
+        const targetRatio = 9 / 16;
+        const imageRatio = imageW / imageH;
 
-    const helperCanvas = document.createElement('canvas');
-    const helperCtx = helperCanvas.getContext('2d');
+        let W, H, offsetX, offsetY;
+        if (imageRatio > targetRatio) {
+            H = imageH;
+            W = H * targetRatio;
+            offsetX = (imageW - W) / 2;
+            offsetY = 0;
+        } else {
+            W = imageW;
+            H = W / targetRatio;
+            offsetX = 0;
+            offsetY = (imageH - H) / 2;
+        }
+        return { W, H, offsetX, offsetY };
+    }
 
-    function extractNames(img) {
+    extractNames(img, charY_Base, charHeight, nameAreaHeight) {
         const imgNames = [];
-        const { W: imgW, H: imgH, offsetX: imgOffX } = calculateSafeSize(img);
+        const { W: imgW, H: imgH, offsetX: imgOffX } = ImageProcessor.calculateSafeSize(img);
         
+        const spaceRatio = 35 / 1080;
+        const cardRatio = 174 / 1080;
+        const cropWidthRatio = 209 / 1080;
+        const cropWidth = imgW * cropWidthRatio;
+
         for (let i = 0; i < 5; i++) {
             const cardX = imgOffX + (imgW * spaceRatio) + i * (imgW * cardRatio + imgW * spaceRatio);
             const charX = cardX - (imgW * spaceRatio / 2);
@@ -256,125 +161,288 @@ function combineImages(images) {
             const nY = charY_Base + charHeight * 0.75;
             const nH = nameAreaHeight - (charHeight * 0.75);
             
-            helperCanvas.width = cropWidth;
-            helperCanvas.height = nH;
-            helperCtx.drawImage(img, charX, nY, cropWidth, nH, 0, 0, cropWidth, nH);
-            imgNames.push(helperCtx.getImageData(0, 0, cropWidth, nH));
+            this.helperCanvas.width = cropWidth;
+            this.helperCanvas.height = nH;
+            this.helperCtx.drawImage(img, charX, nY, cropWidth, nH, 0, 0, cropWidth, nH);
+            imgNames.push(this.helperCtx.getImageData(0, 0, cropWidth, nH));
         }
         return imgNames;
     }
 
-    const referenceNames = extractNames(images[0]);
+    combineImages(images, manualYOffset) {
+        if (images.length === 0) return null;
 
-    const finalCanvas = document.createElement('canvas');
-    finalCanvas.width = cropWidth * 5;
-    finalCanvas.height = charHeight * images.length;
-    const ctx = finalCanvas.getContext('2d');
+        const { W, H, offsetX } = ImageProcessor.calculateSafeSize(images[0]);
+        const deadZoneOffset = ImageProcessor.getAutoDeadZoneOffset(images[0]);
 
-    images.forEach((img, rowIndex) => {
-        const currentNames = extractNames(img);
-        const mapping = findBestMapping(referenceNames, currentNames);
+        const charY_Base = (H * 0.1875) + deadZoneOffset + manualYOffset;
+        const charHeight = H * 0.296875;
+        const nameAreaHeight = H / 3;
 
-        for (let targetIdx = 0; targetIdx < 5; targetIdx++) {
-            const sourceIdx = mapping[targetIdx];
-            const { W: imgW, H: imgH, offsetX: imgOffX } = calculateSafeSize(img);
-            
-            const cardX = imgOffX + (imgW * spaceRatio) + sourceIdx * (imgW * cardRatio + imgW * spaceRatio);
-            const charX = cardX - (imgW * spaceRatio / 2);
-            
-            const destX = targetIdx * cropWidth;
-            const destY = rowIndex * charHeight;
+        const spaceRatio = 35 / 1080;
+        const cardRatio = 174 / 1080;
+        const cropWidthRatio = 209 / 1080;
+        const cropWidth = W * cropWidthRatio;
 
-            ctx.drawImage(img, charX, charY_Base, cropWidth, charHeight, destX, destY, cropWidth, charHeight);
-        }
-    });
+        const referenceNames = this.extractNames(images[0], charY_Base, charHeight, nameAreaHeight);
 
-    const imgURL = finalCanvas.toDataURL('image/png');
-    const previewItem = document.createElement('div');
-    previewItem.className = 'preview-item combined-result';
-    const previewImg = document.createElement('img');
-    previewImg.src = imgURL;
-    previewImg.style.maxWidth = '100%';
-    previewItem.appendChild(previewImg);
-    previewItem.onclick = () => downloadImage(imgURL, `nikke_sorted_combined.png`);
-    previewContainer.appendChild(previewItem);
-}
+        const finalCanvas = document.createElement('canvas');
+        finalCanvas.width = cropWidth * 5;
+        finalCanvas.height = charHeight * images.length;
+        const ctx = finalCanvas.getContext('2d');
 
-function findBestMapping(refs, currents) {
-    const mapping = [];
-    const availableSources = [0, 1, 2, 3, 4];
+        images.forEach((img, rowIndex) => {
+            const currentNames = this.extractNames(img, charY_Base, charHeight, nameAreaHeight);
+            const mapping = ImageMatcher.findBestMapping(referenceNames, currentNames);
 
-    for (let r = 0; r < 5; r++) {
-        let minDiff = Infinity;
-        let bestIdxIdx = -1;
+            for (let targetIdx = 0; targetIdx < 5; targetIdx++) {
+                const sourceIdx = mapping[targetIdx];
+                const { W: imgW, offsetX: imgOffX } = ImageProcessor.calculateSafeSize(img);
+                
+                const cardX = imgOffX + (imgW * spaceRatio) + sourceIdx * (imgW * cardRatio + imgW * spaceRatio);
+                const charX = cardX - (imgW * spaceRatio / 2);
+                
+                const destX = targetIdx * cropWidth;
+                const destY = rowIndex * charHeight;
 
-        for (let i = 0; i < availableSources.length; i++) {
-            const s = availableSources[i];
-            const diff = calculateImageDiff(refs[r], currents[s]);
-            if (diff < minDiff) {
-                minDiff = diff;
-                bestIdxIdx = i;
+                ctx.drawImage(img, charX, charY_Base, cropWidth, charHeight, destX, destY, cropWidth, charHeight);
             }
-        }
-        mapping[r] = availableSources[bestIdxIdx];
-        availableSources.splice(bestIdxIdx, 1);
+        });
+
+        return finalCanvas.toDataURL('image/png');
     }
-    return mapping;
 }
 
-function calculateImageDiff(data1, data2) {
-    const d1 = data1.data;
-    const d2 = data2.data;
-    const w = data1.width;
-    const h = data1.height;
-    const len = w * h;
-    const SHIFT = 4;
+/**
+ * UI State and Event Management
+ */
+class UIManager {
+    constructor(app) {
+        this.app = app;
+        this.isDragging = false;
+        this.startY = 0;
+        this.initialYOffset = 0;
 
-    function gray(data) {
-        const g = new Float64Array(len);
-        for (let i = 0; i < len; i++) {
-            g[i] = (data[i*4] + data[i*4+1] + data[i*4+2]) / 3;
-        }
-        return g;
+        this.initElements();
+        this.initEvents();
     }
 
-    const g1 = gray(d1);
-    const g2 = gray(d2);
+    initElements() {
+        this.imageInput = document.getElementById('imageInput');
+        this.toggleAdjustBtn = document.getElementById('toggleAdjustBtn');
+        this.resetAdjustBtn = document.getElementById('resetAdjustBtn');
+        this.settingsPanel = document.getElementById('settingsPanel');
+        this.adjustmentWrapper = document.getElementById('adjustmentWrapper');
+        this.adjustmentCanvas = document.getElementById('adjustmentCanvas');
+        this.cropOverlay = document.getElementById('cropOverlay');
+        this.yOffsetRange = document.getElementById('yOffsetRange');
+        this.previewContainer = document.getElementById('previewContainer');
+    }
 
-    const m1 = g1.reduce((s, v) => s + v, 0) / len;
-    const m2 = g2.reduce((s, v) => s + v, 0) / len;
+    initEvents() {
+        this.imageInput.addEventListener('change', (e) => this.app.handleImageUpload(e.target.files));
+        this.toggleAdjustBtn.addEventListener('click', () => this.toggleSettings());
+        this.resetAdjustBtn.addEventListener('click', () => this.app.resetAdjustment());
 
-    let bestNcc = -Infinity;
+        this.adjustmentWrapper.addEventListener('mousedown', (e) => this.startDrag(e));
+        this.adjustmentWrapper.addEventListener('touchstart', (e) => this.startDrag(e), { passive: false });
+        window.addEventListener('mousemove', (e) => this.drag(e));
+        window.addEventListener('touchmove', (e) => this.drag(e), { passive: false });
+        window.addEventListener('mouseup', () => this.endDrag());
+        window.addEventListener('touchend', () => this.endDrag());
+    }
 
-    for (let dy = -SHIFT; dy <= SHIFT; dy++) {
-        for (let dx = -SHIFT; dx <= SHIFT; dx++) {
-            let num = 0, den1 = 0, den2 = 0;
-            for (let y = 0; y < h; y++) {
-                const y2 = Math.max(0, Math.min(h-1, y + dy));
-                for (let x = 0; x < w; x++) {
-                    const x2 = Math.max(0, Math.min(w-1, x + dx));
-                    const i1 = y * w + x;
-                    const i2 = y2 * w + x2;
-                    const v1 = g1[i1] - m1;
-                    const v2 = g2[i2] - m2;
-                    num += v1 * v2;
-                    den1 += v1 * v1;
-                    den2 += v2 * v2;
-                }
-            }
-            const ncc = num / (Math.sqrt(den1 * den2) + 1e-6);
-            if (ncc > bestNcc) bestNcc = ncc;
+    toggleSettings() {
+        const isHidden = this.settingsPanel.classList.toggle('hidden');
+        this.toggleAdjustBtn.textContent = isHidden ? '位置調整を表示' : '位置調整を隠す';
+        if (!isHidden) {
+            this.updateAdjustmentPreview();
         }
     }
 
-    return 1 - bestNcc;
+    startDrag(e) {
+        if (this.app.loadedImages.length === 0) return;
+        this.isDragging = true;
+        this.startY = e.clientY || e.touches[0].clientY;
+        this.initialYOffset = parseInt(this.yOffsetRange.value, 10);
+        if (e.type === 'touchstart') e.preventDefault();
+    }
+
+    drag(e) {
+        if (!this.isDragging) return;
+        const currentY = e.clientY || (e.touches ? e.touches[0].clientY : 0);
+        const deltaY = currentY - this.startY;
+
+        const img = this.app.loadedImages[0];
+        const displayHeightLimit = 0.7;
+        const scale = (img.height * displayHeightLimit) / this.adjustmentCanvas.clientHeight;
+        
+        const newOffset = this.initialYOffset + (deltaY * scale);
+        this.yOffsetRange.value = Math.round(newOffset);
+        
+        this.app.saveSettings(this.yOffsetRange.value);
+        this.updateAdjustmentPreview();
+        this.app.render();
+
+        if (e.type === 'touchmove') e.preventDefault();
+    }
+
+    endDrag() {
+        this.isDragging = false;
+    }
+
+    updateAdjustmentPreview() {
+        const images = this.app.loadedImages;
+        if (images.length === 0) return;
+
+        const img = images[0];
+        const displayHeightLimit = 0.7;
+        const ctx = this.adjustmentCanvas.getContext('2d');
+        
+        this.adjustmentCanvas.width = img.width;
+        this.adjustmentCanvas.height = img.height * displayHeightLimit;
+        ctx.drawImage(img, 0, 0, img.width, img.height * displayHeightLimit, 0, 0, this.adjustmentCanvas.width, this.adjustmentCanvas.height);
+
+        const { W, H, offsetX } = ImageProcessor.calculateSafeSize(img);
+        const manualYOffset = parseInt(this.yOffsetRange.value, 10);
+        const deadZoneOffset = ImageProcessor.getAutoDeadZoneOffset(img);
+
+        const charY_Base = (H * 0.1875) + deadZoneOffset + manualYOffset;
+        const charHeight = H * 0.296875;
+        
+        const spaceRatio = 35 / 1080;
+        const cardRatio = 174 / 1080;
+        const cropWidthRatio = 209 / 1080;
+        const space = W * spaceRatio;
+        const cardWidth = W * cardRatio;
+        const cropWidth = W * cropWidthRatio;
+
+        const toPercentX = (val) => (val / img.width) * 100;
+        const toPercentY = (val) => (val / (img.height * displayHeightLimit)) * 100;
+
+        const firstCharX = (offsetX + space) - (space / 2);
+
+        this.cropOverlay.style.left = toPercentX(firstCharX) + '%';
+        this.cropOverlay.style.top = toPercentY(charY_Base) + '%';
+        this.cropOverlay.style.width = toPercentX(cropWidth * 5) + '%';
+        this.cropOverlay.style.height = toPercentY(charHeight) + '%';
+
+        const existingFrames = this.adjustmentWrapper.querySelectorAll('.crop-frame');
+        existingFrames.forEach(f => f.remove());
+
+        for(let i=0; i<5; i++) {
+            const frame = document.createElement('div');
+            frame.className = 'crop-frame';
+            const cardX = offsetX + space + i * (cardWidth + space);
+            const charX = cardX - (space / 2);
+            
+            frame.style.left = toPercentX(charX) + '%';
+            frame.style.top = toPercentY(charY_Base) + '%';
+            frame.style.width = toPercentX(cropWidth) + '%';
+            frame.style.height = toPercentY(charHeight) + '%';
+            this.adjustmentWrapper.appendChild(frame);
+        }
+    }
+
+    displayResults(imgURL) {
+        this.previewContainer.innerHTML = '';
+        if (!imgURL) return;
+
+        const previewItem = document.createElement('div');
+        previewItem.className = 'preview-item combined-result';
+        const previewImg = document.createElement('img');
+        previewImg.src = imgURL;
+        previewImg.style.maxWidth = '100%';
+        previewItem.appendChild(previewImg);
+        previewItem.onclick = () => this.downloadImage(imgURL, `nikke_sorted_combined.png`);
+        this.previewContainer.appendChild(previewItem);
+    }
+
+    showLoading() {
+        this.previewContainer.innerHTML = '<p>処理中...</p>';
+        this.toggleAdjustBtn.style.display = 'inline-block';
+    }
+
+    showError() {
+        this.previewContainer.innerHTML = '<p>エラーが発生しました。</p>';
+    }
+
+    downloadImage(url, filename) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
 }
 
-function downloadImage(url, filename) {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+/**
+ * Main Application Controller
+ */
+class App {
+    constructor() {
+        this.loadedImages = [];
+        this.processor = new ImageProcessor();
+        this.ui = new UIManager(this);
+
+        this.init();
+    }
+
+    init() {
+        const savedOffset = SettingsManager.load();
+        this.ui.yOffsetRange.value = savedOffset;
+    }
+
+    async handleImageUpload(files) {
+        if (!files.length) return;
+
+        this.ui.showLoading();
+
+        try {
+            this.loadedImages = await Promise.all(Array.from(files).map(file => this.loadImage(file)));
+            this.ui.updateAdjustmentPreview();
+            this.render();
+        } catch (error) {
+            console.error('画像の読み込みに失敗しました:', error);
+            this.ui.showError();
+        }
+    }
+
+    loadImage(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = e.target.result;
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    resetAdjustment() {
+        this.ui.yOffsetRange.value = 0;
+        this.saveSettings(0);
+        this.ui.updateAdjustmentPreview();
+        this.render();
+    }
+
+    saveSettings(value) {
+        SettingsManager.save(value);
+    }
+
+    render() {
+        if (this.loadedImages.length === 0) return;
+        const manualYOffset = parseInt(this.ui.yOffsetRange.value, 10);
+        const resultURL = this.processor.combineImages(this.loadedImages, manualYOffset);
+        this.ui.displayResults(resultURL);
+    }
 }
+
+// アプリの起動
+window.addEventListener('DOMContentLoaded', () => {
+    new App();
+});
